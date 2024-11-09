@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../Auth/AuthContext';
+import { ethers } from 'ethers';
 import { create } from 'ipfs-http-client';
+import { Buffer } from 'buffer';
 import './AddBook.css';
-
-const ipfs = create({ host: 'localhost', port: '5001', protocol: 'http' });
 
 const AddBook = ({ onClose, onBookAdded }) => {
   const { user, web3, account } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [ipfsStatus, setIpfsStatus] = useState('checking');
+  const [uploadProgress, setUploadProgress] = useState({});
   const [formData, setFormData] = useState({
     title: '',
     authorName: '',
@@ -17,6 +19,32 @@ const AddBook = ({ onClose, onBookAdded }) => {
     pdfFile: null,
     coverImage: null
   });
+
+  // IPFS client configuration
+  const [ipfs, setIpfs] = useState(null);
+
+  useEffect(() => {
+    initializeIPFS();
+  }, []);
+
+  const initializeIPFS = async () => {
+    try {
+      const client = create({
+        host: 'localhost',
+        port: '5001',
+        protocol: 'http',
+        timeout: 30000 // 30 second timeout
+      });
+
+      // Test connection
+      await client.id();
+      setIpfs(client);
+      setIpfsStatus('connected');
+    } catch (error) {
+      console.error('IPFS connection error:', error);
+      setIpfsStatus('error');
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -28,19 +56,63 @@ const AddBook = ({ onClose, onBookAdded }) => {
 
   const handleFileChange = (e) => {
     const { name, files } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: files[0]
-    }));
+    if (files && files[0]) {
+      setFormData(prev => ({
+        ...prev,
+        [name]: files[0]
+      }));
+      // Reset progress for this file
+      setUploadProgress(prev => ({
+        ...prev,
+        [name]: 0
+      }));
+    }
   };
 
   const uploadToIPFS = async (file) => {
+    if (!ipfs) {
+      throw new Error('IPFS client not initialized');
+    }
+
+    if (!file) {
+      throw new Error('No file selected');
+    }
+
     try {
-      const added = await ipfs.add(file);
-      return added.path;
+      // Create a buffer from the file
+      const buffer = await file.arrayBuffer();
+      const content = Buffer.from(buffer);
+
+      // Calculate total size for progress tracking
+      const totalSize = content.length;
+      let loaded = 0;
+
+      // Upload file with progress tracking
+      const added = await ipfs.add({
+        path: file.name,
+        content: content
+      }, {
+        progress: (bytes) => {
+          loaded += bytes;
+          const progress = (loaded / totalSize) * 100;
+          setUploadProgress(prev => ({
+            ...prev,
+            [file.name]: Math.min(progress, 100)
+          }));
+        }
+      });
+
+      // Pin the file to make it persistent
+      await ipfs.pin.add(added.cid);
+
+      return {
+        hash: added.path,
+        size: added.size,
+        name: file.name
+      };
     } catch (error) {
       console.error('IPFS upload error:', error);
-      throw new Error('Failed to upload file to IPFS');
+      throw new Error(`Failed to upload ${file.name} to IPFS`);
     }
   };
 
@@ -49,51 +121,84 @@ const AddBook = ({ onClose, onBookAdded }) => {
     setLoading(true);
 
     try {
+      if (ipfsStatus !== 'connected') {
+        throw new Error('IPFS is not connected. Please try again.');
+      }
+
+      // Validate form data
+      if (!formData.title || !formData.pdfFile || !formData.coverImage) {
+        throw new Error('Please fill in all required fields');
+      }
+
       // Upload files to IPFS
-      const pdfHash = await uploadToIPFS(formData.pdfFile);
-      const coverHash = await uploadToIPFS(formData.coverImage);
+      const pdfUpload = await uploadToIPFS(formData.pdfFile);
+      const coverUpload = await uploadToIPFS(formData.coverImage);
+
+      // Verify files are pinned
+      const isPdfPinned = await verifyPin(pdfUpload.hash);
+      const isCoverPinned = await verifyPin(coverUpload.hash);
+
+      if (!isPdfPinned || !isCoverPinned) {
+        throw new Error('Failed to verify file pinning');
+      }
 
       // Convert price to Wei
-      const priceInWei = web3.utils.toWei(formData.price, 'ether');
+      const priceInWei = ethers.utils.parseEther(formData.price);
 
-      // Add book to smart contract
-      const contract = new web3.eth.Contract(BookStoreABI, CONTRACT_ADDRESS);
-      await contract.methods.addBook(
-        formData.title,
-        priceInWei,
-        pdfHash,
-        coverHash,
-        Number(formData.royaltyPercentage),
-        formData.authorName
-      ).send({ from: account });
-
-      // Add book to backend
-      const bookData = {
+      // Create book metadata
+      const bookMetadata = {
         title: formData.title,
         authorName: formData.authorName,
         description: formData.description,
-        price: priceInWei,
-        pdfHash,
-        coverHash,
+        pdfHash: pdfUpload.hash,
+        coverHash: coverUpload.hash,
+        price: formData.price,
         royaltyPercentage: formData.royaltyPercentage
       };
 
+      // Upload metadata to IPFS
+      const metadataUpload = await uploadToIPFS(
+        new Blob([JSON.stringify(bookMetadata)], { type: 'application/json' })
+      );
+
+      // Add book to smart contract
+      const contract = new web3.eth.Contract(BookStoreABI, CONTRACT_ADDRESS);
+      const tx = await contract.methods.addBook(
+        formData.title,
+        priceInWei,
+        metadataUpload.hash,
+        Number(formData.royaltyPercentage)
+      ).send({ from: account });
+
+      // Add book to backend
       await fetch('/api/books', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${user.token}`
         },
-        body: JSON.stringify(bookData)
+        body: JSON.stringify({
+          ...bookMetadata,
+          transactionHash: tx.transactionHash
+        })
       });
 
       onBookAdded();
       onClose();
     } catch (error) {
       console.error('Error adding book:', error);
-      alert('Failed to add book');
+      alert(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyPin = async (hash) => {
+    try {
+      const pins = await ipfs.pin.ls({ paths: [hash] });
+      return Array.from(pins).length > 0;
+    } catch {
+      return false;
     }
   };
 
@@ -102,10 +207,17 @@ const AddBook = ({ onClose, onBookAdded }) => {
       <div className="add-book-modal">
         <button className="close-button" onClick={onClose}>&times;</button>
         <h2>Add New Book</h2>
-        
+
+        <div className={`ipfs-status ${ipfsStatus}`}>
+          IPFS Status: {ipfsStatus}
+          {ipfsStatus === 'error' && (
+            <button onClick={initializeIPFS}>Retry Connection</button>
+          )}
+        </div>
+
         <form onSubmit={handleSubmit} className="add-book-form">
           <div className="form-group">
-            <label htmlFor="title">Title</label>
+            <label htmlFor="title">Title *</label>
             <input
               type="text"
               id="title"
@@ -117,7 +229,7 @@ const AddBook = ({ onClose, onBookAdded }) => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="authorName">Author Name</label>
+            <label htmlFor="authorName">Author Name *</label>
             <input
               type="text"
               id="authorName"
@@ -135,68 +247,88 @@ const AddBook = ({ onClose, onBookAdded }) => {
               name="description"
               value={formData.description}
               onChange={handleChange}
-              required
+              rows="4"
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="price">Price (ETH)</label>
+            <label htmlFor="price">Price (ETH) *</label>
             <input
               type="number"
               id="price"
               name="price"
-              step="0.001"
               value={formData.price}
               onChange={handleChange}
+              step="0.001"
+              min="0"
               required
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="royaltyPercentage">Author Royalty (%)</label>
+            <label htmlFor="royaltyPercentage">Royalty Percentage *</label>
             <input
               type="number"
               id="royaltyPercentage"
               name="royaltyPercentage"
-              min="0"
-              max="100"
               value={formData.royaltyPercentage}
               onChange={handleChange}
+              min="0"
+              max="100"
               required
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="pdfFile">PDF File</label>
+            <label htmlFor="pdfFile">PDF File *</label>
             <input
               type="file"
               id="pdfFile"
               name="pdfFile"
-              accept=".pdf"
               onChange={handleFileChange}
+              accept=".pdf"
               required
             />
+            {uploadProgress[formData.pdfFile?.name] > 0 && (
+              <div className="progress-bar">
+                <div 
+                  className="progress" 
+                  style={{width: `${uploadProgress[formData.pdfFile.name]}%`}}
+                />
+              </div>
+            )}
           </div>
 
           <div className="form-group">
-            <label htmlFor="coverImage">Cover Image</label>
+            <label htmlFor="coverImage">Cover Image *</label>
             <input
               type="file"
               id="coverImage"
               name="coverImage"
-              accept="image/*"
               onChange={handleFileChange}
+              accept="image/*"
               required
             />
+            {uploadProgress[formData.coverImage?.name] > 0 && (
+              <div className="progress-bar">
+                <div 
+                  className="progress" 
+                  style={{width: `${uploadProgress[formData.coverImage.name]}%`}}
+                />
+              </div>
+            )}
           </div>
 
-          <button 
-            type="submit" 
-            className="submit-button" 
-            disabled={loading}
-          >
-            {loading ? 'Adding Book...' : 'Add Book'}
-          </button>
+          <div className="form-actions">
+            <button 
+              type="submit" 
+              disabled={loading || ipfsStatus !== 'connected'}
+              className={loading ? 'loading' : ''}
+            >
+              {loading ? 'Adding Book...' : 'Add Book'}
+            </button>
+            <button type="button" onClick={onClose}>Cancel</button>
+          </div>
         </form>
       </div>
     </div>
