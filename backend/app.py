@@ -1,131 +1,113 @@
-from flask import Flask, request, jsonify, send_file
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List
 from web3 import Web3
-import json
-import os
-from werkzeug.utils import secure_filename
+import ipfsapi
 
-app = Flask(__name__)
-CORS(app)
+from config import Config
+from database import get_db, init_db
+from models import User, Book, Purchase, Royalty, UserRole
+from auth import get_current_user, authenticate_user, create_access_token
+from schemas import (
+    UserCreate, UserLogin, UserResponse,
+    BookCreate, BookResponse,
+    PurchaseCreate, PurchaseResponse,
+    RoyaltyResponse
+)
 
-# Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///bookstore.db'
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max-limit
-db = SQLAlchemy(app)
+app = FastAPI(title="Blockchain Bookstore API")
 
-# Ensure upload folder exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Config.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Ethereum setup
-w3 = Web3(Web3.HTTPProvider('http://127.0.0.1:7545'))
+# Initialize Web3 and IPFS
+web3 = Web3(Web3.HTTPProvider(Config.WEB3_PROVIDER_URI))
+ipfs = ipfsapi.Client(Config.IPFS_HOST, Config.IPFS_PORT)
 
-# Load contract ABI
-with open('BookStoreABI.json', 'r') as abi_file:
-    contract_abi = json.load(abi_file)
+# Authentication endpoints
+@app.post("/auth/register", response_model=UserResponse)
+async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    # Implementation for user registration
 
-contract_address = '0xa5614113F16a32A1d7d2699c01108feBcf9642A6'  # Update after deployment
-contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+@app.post("/auth/login")
+async def login(user_data: UserLogin, db: Session = Depends(get_db)):
+    # Implementation for user login
 
-# Database Models
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    eth_address = db.Column(db.String(42), unique=True, nullable=False)
-    role = db.Column(db.String(10), nullable=False)
+# Book endpoints
+@app.get("/books", response_model=List[BookResponse])
+async def get_books(db: Session = Depends(get_db)):
+    # Implementation for getting all books
 
-class Transaction(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    book_id = db.Column(db.Integer, nullable=False)
-    buyer_address = db.Column(db.String(42), nullable=False)
-    price = db.Column(db.Integer, nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False)
-    tx_hash = db.Column(db.String(66), nullable=False)
+@app.post("/books", response_model=BookResponse)
+async def create_book(
+    book_data: BookCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for creating a new book
 
-db.create_all()
+@app.get("/books/{book_id}", response_model=BookResponse)
+async def get_book(book_id: int, db: Session = Depends(get_db)):
+    # Implementation for getting a specific book
 
-# Routes
-@app.route('/register', methods=['POST'])
-def register():
-    try:
-        data = request.json
-        user = User(
-            username=data['username'],
-            eth_address=data['eth_address'],
-            role=data['role']
-        )
-        db.session.add(user)
-        db.session.commit()
-        return jsonify({'message': 'User registered successfully'}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+# Purchase endpoints
+@app.post("/books/{book_id}/purchase", response_model=PurchaseResponse)
+async def purchase_book(
+    book_id: int,
+    purchase_data: PurchaseCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for purchasing a book
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    if file:
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        return jsonify({
-            'message': 'File uploaded successfully',
-            'filepath': filepath
-        }), 200
+# User-specific endpoints
+@app.get("/user/books", response_model=List[BookResponse])
+async def get_user_books(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for getting user's purchased books
 
-@app.route('/books', methods=['GET'])
-def get_books():
-    try:
-        books = contract.functions.getAllBooks().call()
-        return jsonify(books), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+# Author-specific endpoints
+@app.get("/author/books", response_model=List[BookResponse])
+async def get_author_books(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for getting author's books
 
-@app.route('/books/<int:book_id>', methods=['GET'])
-def get_book(book_id):
-    try:
-        book = contract.functions.getBook(book_id).call()
-        return jsonify(book), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+@app.get("/author/royalties", response_model=List[RoyaltyResponse])
+async def get_author_royalties(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for getting author's royalties
 
-@app.route('/books/add', methods=['POST'])
-def add_book():
-    try:
-        data = request.json
-        tx_hash = contract.functions.addBook(
-            data['title'],
-            data['pdfHash'],
-            data['imageHash'],
-            int(data['price']),
-            data['author'],
-            int(data['royaltyPercentage'])
-        ).transact({'from': data['author']})
-        return jsonify({'tx_hash': tx_hash.hex()}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+# Seller-specific endpoints
+@app.get("/seller/books", response_model=List[BookResponse])
+async def get_seller_books(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for getting seller's books
 
-@app.route('/purchases/<address>', methods=['GET'])
-def get_purchases(address):
-    try:
-        purchases = contract.functions.getPurchasedBooks(address).call()
-        return jsonify(purchases), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+@app.put("/seller/books/{book_id}", response_model=BookResponse)
+async def update_book(
+    book_id: int,
+    book_data: BookCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Implementation for updating a book
 
-@app.route('/royalties/<address>', methods=['GET'])
-def get_royalties(address):
-    try:
-        royalties = contract.functions.getAuthorRoyalties(address).call()
-        return jsonify({'royalties': royalties}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-if __name__ == '__main__':
-    app.run(debug=True)
+# Initialize database
+@app.on_event("startup")
+async def startup_event():
+    init_db()

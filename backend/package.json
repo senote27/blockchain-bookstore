@@ -1,0 +1,59 @@
+{
+    "name": "blockchain-bookstore",
+    "version": "1.0.0",
+    "description": "A decentralized bookstore using blockchain technology",
+    "main": "truffle-config.js",
+    "scripts": {
+      "test": "truffle test",
+      "compile": "truffle compile",
+      "migrate": "truffle migrate",
+      "migrate:sepolia": "truffle migrate --network sepolia",
+      "verify": "truffle run verify",
+      "start": "npm run dev",
+      "dev": "next dev",
+      "build": "next build",
+      "lint": "next lint"
+    },
+    "dependencies": {
+      "@openzeppelin/contracts": "^4.9.0",
+      "@truffle/hdwallet-provider": "^2.1.15",
+      "dotenv": "^16.3.1",
+      "ethers": "^5.7.2",
+      "next": "^13.4.19",
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "web3": "^1.10.0",
+      "@chakra-ui/react": "^2.8.0",
+      "@emotion/react": "^11.11.1",
+      "@emotion/styled": "^11.11.0",
+      "axios": "^1.5.0",
+      "framer-motion": "^10.16.4",
+      "ipfs-http-client": "^60.0.1"
+    },
+    "devDependencies": {
+      "@types/node": "^20.5.9",
+      "@types/react": "^18.2.21",
+      "autoprefixer": "^10.4.15",
+      "eslint": "^8.48.0",
+      "eslint-config-next": "^13.4.19",
+      "hardhat": "^2.17.1",
+      "postcss": "^8.4.29",
+      "tailwindcss": "^3.3.3",
+      "truffle": "^5.11.5",
+      "truffle-plugin-verify": "^0.6.5",
+      "typescript": "^5.2.2"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/senote27/blockchain-bookstore.git"
+    },
+    "keywords": [
+      "blockchain",
+      "ethereum",
+      "bookstore",
+      "dapp",
+      "web3"
+    ],
+    "author": "senote27",
+    "license": "MIT"
+  }

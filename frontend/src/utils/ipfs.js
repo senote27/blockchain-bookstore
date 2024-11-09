@@ -1,45 +1,69 @@
 import { create } from 'ipfs-http-client';
 
-const ipfs = create({
-    host: 'localhost',
-    port: '5001',
-    protocol: 'http',
-});
-
-const uploadToIPFS = async (file) => {
-    try {
-        const added = await ipfs.add(file);
-        console.log('IPFS CID:', added.path);
-        return added.path;
-    } catch (error) {
-        console.error('IPFS upload error:', error);
-        throw new Error('Failed to upload to IPFS');
-    }
+const IPFS_NODE = {
+  host: process.env.REACT_APP_IPFS_HOST || 'localhost',
+  port: process.env.REACT_APP_IPFS_PORT || '5001',
+  protocol: process.env.REACT_APP_IPFS_PROTOCOL || 'http'
 };
 
-const getFromIPFS = async (cid) => {
-    try {
-        const stream = ipfs.cat(cid);
-        const chunks = [];
-        for await (const chunk of stream) {
-            chunks.push(chunk);
-        }
-        return Buffer.concat(chunks);
-    } catch (error) {
-        console.error('IPFS retrieval error:', error);
-        throw new Error('Failed to retrieve from IPFS');
-    }
+let ipfsClient = null;
+
+export const initIPFS = () => {
+  try {
+    ipfsClient = create(IPFS_NODE);
+    return ipfsClient;
+  } catch (error) {
+    console.error('IPFS initialization error:', error);
+    throw error;
+  }
 };
 
-const testIPFSConnection = async () => {
-    try {
-        const version = await ipfs.version();
-        console.log('IPFS Version:', version);
-        return true;
-    } catch (error) {
-        console.error('IPFS Connection Error:', error);
-        return false;
+export const uploadFile = async (file) => {
+  try {
+    if (!ipfsClient) {
+      await initIPFS();
     }
+
+    const fileBuffer = await file.arrayBuffer();
+    const result = await ipfsClient.add(fileBuffer);
+    return result.path;
+  } catch (error) {
+    console.error('IPFS upload error:', error);
+    throw error;
+  }
 };
 
-export { ipfs, uploadToIPFS, getFromIPFS, testIPFSConnection };
+export const uploadJSON = async (jsonData) => {
+  try {
+    if (!ipfsClient) {
+      await initIPFS();
+    }
+
+    const result = await ipfsClient.add(JSON.stringify(jsonData));
+    return result.path;
+  } catch (error) {
+    console.error('IPFS JSON upload error:', error);
+    throw error;
+  }
+};
+
+export const getFile = async (hash) => {
+  try {
+    if (!ipfsClient) {
+      await initIPFS();
+    }
+
+    const chunks = [];
+    for await (const chunk of ipfsClient.cat(hash)) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } catch (error) {
+    console.error('IPFS file retrieval error:', error);
+    throw error;
+  }
+};
+
+export const getIPFSUrl = (hash) => {
+  return `https://ipfs.io/ipfs/${hash}`;
+};
