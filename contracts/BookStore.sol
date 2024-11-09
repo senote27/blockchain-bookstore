@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 contract BookStore {
     address public owner;
-
+    
     struct Book {
         uint256 id;
         string title;
@@ -11,72 +11,139 @@ contract BookStore {
         string imageHash;
         uint256 price;
         address payable author;
+        uint256 royaltyPercentage;
+        bool isActive;
     }
-
-    uint256 public bookCount = 0;
+    
+    mapping(address => bool) public authorizedSellers;
+    mapping(address => bool) public authorizedAuthors;
     mapping(uint256 => Book) public books;
-
-    mapping(address => uint256[]) public purchases;
-    mapping(address => uint256) public royalties;
-
-    event BookAdded(uint256 bookId, string title, address seller);
-    event BookPurchased(uint256 bookId, address buyer);
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can perform this action.");
-        _;
-    }
-
+    mapping(address => uint256[]) public userPurchases;
+    mapping(address => uint256) public authorRoyalties;
+    
+    uint256 public bookCount;
+    
+    event BookAdded(uint256 bookId, string title, address author);
+    event BookPurchased(uint256 bookId, address buyer, uint256 price);
+    event RoyaltyPaid(address author, uint256 amount);
+    
     constructor() {
         owner = msg.sender;
+        authorizedSellers[msg.sender] = true;
     }
-
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can perform this action");
+        _;
+    }
+    
+    modifier onlySeller() {
+        require(authorizedSellers[msg.sender], "Only authorized sellers can perform this action");
+        _;
+    }
+    
+    modifier onlyAuthor() {
+        require(authorizedAuthors[msg.sender], "Only authorized authors can perform this action");
+        _;
+    }
+    
+    function transferOwnership(address newOwner) public onlyOwner {
+        require(newOwner != address(0), "Invalid address");
+        owner = newOwner;
+    }
+    
+    function addSeller(address seller) public onlyOwner {
+        authorizedSellers[seller] = true;
+    }
+    
+    function addAuthor(address author) public onlyOwner {
+        authorizedAuthors[author] = true;
+    }
+    
     function addBook(
-        string memory _title,
-        string memory _pdfHash,
-        string memory _imageHash,
-        uint256 _price,
-        address payable _author
-    ) public {
+        string memory title,
+        string memory pdfHash,
+        string memory imageHash,
+        uint256 price,
+        address payable author,
+        uint256 royaltyPercentage
+    ) public onlySeller returns (uint256) {
+        require(royaltyPercentage <= 100, "Invalid royalty percentage");
+        require(authorizedAuthors[author], "Invalid author address");
+        
+        bookCount++;
         books[bookCount] = Book(
             bookCount,
-            _title,
-            _pdfHash,
-            _imageHash,
-            _price,
-            _author
+            title,
+            pdfHash,
+            imageHash,
+            price,
+            author,
+            royaltyPercentage,
+            true
         );
-        emit BookAdded(bookCount, _title, msg.sender);
-        bookCount++;
+        
+        emit BookAdded(bookCount, title, author);
+        return bookCount;
     }
-
-    function buyBook(uint256 _bookId) public payable {
-        Book memory book = books[_bookId];
-        require(msg.value == book.price, "Incorrect value sent.");
-
-        // Transfer funds to author
-        book.author.transfer(msg.value);
-        royalties[book.author] += msg.value;
-
-        // Record the purchase
-        purchases[msg.sender].push(_bookId);
-
-        emit BookPurchased(_bookId, msg.sender);
+    
+    function getBook(uint256 bookId) public view returns (
+        uint256 id,
+        string memory title,
+        string memory pdfHash,
+        string memory imageHash,
+        uint256 price,
+        address author,
+        uint256 royaltyPercentage,
+        bool isActive
+    ) {
+        Book memory book = books[bookId];
+        require(book.isActive, "Book not found");
+        return (
+            book.id,
+            book.title,
+            book.pdfHash,
+            book.imageHash,
+            book.price,
+            book.author,
+            book.royaltyPercentage,
+            book.isActive
+        );
     }
-
-    function getBooks() public view returns (Book[] memory) {
+    
+    function buyBook(uint256 bookId) public payable {
+        Book storage book = books[bookId];
+        require(book.isActive, "Book not available");
+        require(msg.value == book.price, "Incorrect payment amount");
+        
+        uint256 royaltyAmount = (msg.value * book.royaltyPercentage) / 100;
+        uint256 sellerAmount = msg.value - royaltyAmount;
+        
+        book.author.transfer(royaltyAmount);
+        payable(owner).transfer(sellerAmount);
+        
+        userPurchases[msg.sender].push(bookId);
+        authorRoyalties[book.author] += royaltyAmount;
+        
+        emit BookPurchased(bookId, msg.sender, msg.value);
+        emit RoyaltyPaid(book.author, royaltyAmount);
+    }
+    
+    function getAllBooks() public view returns (Book[] memory) {
         Book[] memory allBooks = new Book[](bookCount);
-        for (uint256 i = 0; i < bookCount; i++) {
-            allBooks[i] = books[i];
+        for (uint256 i = 1; i <= bookCount; i++) {
+            if (books[i].isActive) {
+                allBooks[i-1] = books[i];
+            }
         }
         return allBooks;
     }
-
-    function getPurchases(address _user) public view returns (uint256[] memory) {
-        return purchases[_user];
+    
+    function getUserPurchases(address user) public view returns (uint256[] memory) {
+        return userPurchases[user];
     }
-
-    function getRoyalties(address _author) public view returns (uint256) {
-        return royalties[_author];
+    
+    function getAuthorRoyalties(address author) public view returns (uint256) {
+        return authorRoyalties[author];
     }
 }

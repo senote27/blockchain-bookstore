@@ -1,41 +1,29 @@
 import React from 'react';
-import {
-  Card,
-  CardMedia,
-  CardContent,
-  Typography,
-  Button,
-} from '@material-ui/core';
 
-const BookCard = ({ book, buyBook }) => {
-  const imageUrl = `https://ipfs.io/ipfs/${book.imageHash}`;
+const BookCard = ({ book, onImageClick, onPurchase, web3 }) => {
+    const priceInEth = web3.utils.fromWei(book.price.toString(), 'ether');
 
-  return (
-    <Card>
-      <CardMedia
-        component="img"
-        alt={book.title}
-        height="200"
-        image={imageUrl}
-        title={book.title}
-      />
-      <CardContent>
-        <Typography gutterBottom variant="h5">
-          {book.title}
-        </Typography>
-        <Typography variant="body2" color="textSecondary">
-          Price: {window.web3.utils.fromWei(book.price.toString(), 'ether')} ETH
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() => buyBook(book.id, book.price)}
-        >
-          Buy Book
-        </Button>
-      </CardContent>
-    </Card>
-  );
+    return (
+        <div className="book-card">
+            <div className="book-image-container" onClick={() => onImageClick(book)}>
+                <img 
+                    src={`https://ipfs.io/ipfs/${book.imageHash}`}
+                    alt={book.title}
+                    className="book-image"
+                />
+            </div>
+            <div className="book-info">
+                <h3>{book.title}</h3>
+                <p>{priceInEth} ETH</p>
+                <button 
+                    className="purchase-button"
+                    onClick={() => onPurchase(book)}
+                >
+                    Purchase
+                </button>
+            </div>
+        </div>
+    );
 };
 
 export default BookCard;
