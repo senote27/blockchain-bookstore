@@ -1,1 +1,6 @@
-pip install flask flask_sqlalchemy web3 flask_cors
+Flask==2.0.1
+Flask-SQLAlchemy==2.5.1
+Flask-CORS==3.0.10
+web3==5.31.3
+python-dotenv==0.19.2
+Werkzeug==2.0.2

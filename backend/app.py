@@ -33,7 +33,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     eth_address = db.Column(db.String(42), unique=True, nullable=False)
-    role = db.Column(db.String(10), nullable=False)  # 'user', 'author', 'seller'
+    role = db.Column(db.String(10), nullable=False)
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -106,26 +106,21 @@ def add_book():
             int(data['price']),
             data['author'],
             int(data['royaltyPercentage'])
-        ).transact({'from': data['seller']})
-        
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        return jsonify({
-            'message': 'Book added successfully',
-            'tx_hash': tx_hash.hex()
-        }), 201
+        ).transact({'from': data['author']})
+        return jsonify({'tx_hash': tx_hash.hex()}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/purchases/<address>', methods=['GET'])
-def get_user_purchases(address):
+def get_purchases(address):
     try:
-        purchases = contract.functions.getUserPurchases(address).call()
+        purchases = contract.functions.getPurchasedBooks(address).call()
         return jsonify(purchases), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/royalties/<address>', methods=['GET'])
-def get_author_royalties(address):
+def get_royalties(address):
     try:
         royalties = contract.functions.getAuthorRoyalties(address).call()
         return jsonify({'royalties': royalties}), 200
