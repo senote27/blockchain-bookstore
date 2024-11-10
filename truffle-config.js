@@ -7,27 +7,29 @@ module.exports = {
     // Development network - Ganache
     development: {
       host: "127.0.0.1",
-      port: 8545,
-      network_id: "*",     // Match any network id
-      gas: 6721975,        // Default gas limit in Ganache
+      port: 7545,  // Changed to match Ganache GUI port
+      network_id: "5777",  // Changed to match Ganache network ID
+      from: "0xa5614113F16a32A1d7d2699c01108feBcf9642A6", // Your Ganache account
+      gas: 6721975,
       gasPrice: 20000000000  // 20 gwei
     },
 
     // Local network - For testing with Ganache GUI
     local: {
-      host: "127.0.0.1",
-      port: 7545, // This matches Ganache's default port
+      provider: () => new HDWalletProvider(
+        "7fd75bccfb23562f9096678a4eeb1c227dd6c87143d986247bdede084027a2e4", // Your private key
+        "http://127.0.0.1:7545"
+      ),
       network_id: "5777",
       gas: 6721975,
       gasPrice: 20000000000
     },
-    
 
     // Test network configuration (optional)
     sepolia: {
       provider: () => new HDWalletProvider(
         process.env.MNEMONIC,
-        process.env.ETH_NODE_URL || "http://127.0.0.1:8545"
+        process.env.ETH_NODE_URL || "http://127.0.0.1:7545"
       ),
       network_id: 11155111,
       gas: 5500000,

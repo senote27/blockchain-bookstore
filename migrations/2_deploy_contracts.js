@@ -1,5 +1,5 @@
-const YourContract = artifacts.require("YourContract");
+const BookStore = artifacts.require("BookStore");
 
 module.exports = function(deployer) {
-  deployer.deploy(YourContract);
+  deployer.deploy(BookStore);
 };
