@@ -16,11 +16,12 @@ module.exports = {
     // Local network - For testing with Ganache GUI
     local: {
       host: "127.0.0.1",
-      port: 7545, // Default Ganache GUI port
+      port: 7545, // This matches Ganache's default port
       network_id: "5777",
       gas: 6721975,
       gasPrice: 20000000000
     },
+    
 
     // Test network configuration (optional)
     sepolia: {
